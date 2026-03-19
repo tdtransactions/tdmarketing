@@ -1,0 +1,26 @@
+export type StoreEntry = {
+  id?: string;
+  startDate: string;
+  endDate: string;
+  storeName: string;
+  customerName: string;
+  address: string;
+  customerPhone: string;
+  facebookLink?: string;
+  instagramLink?: string;
+  googleWebsiteLink?: string;
+  googleBusinessLink?: string;
+  googleVerified: boolean;
+  package: "PRO" | "PLUS" | string;
+  dateRange?: string;
+  assignedTo?: string[];
+  salesPerson?: string;
+  paymentTypes?: "Zelle" | "Check" | "Venmo" | "Credit Card" | "Wire" | string;
+  amount?: string;
+  duration?: string;
+  follow?: string;
+  note?: string;
+  responsibleUserId?: string;
+  createdAt?: number | object;
+  updatedAt?: number | object;
+};

@@ -1,0 +1,96 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222 47% 11%;
+    --foreground: 0 0% 100%;
+    --card: 222 47% 11%;
+    --card-foreground: 0 0% 100%;
+    --popover: 222 47% 5%;
+    --popover-foreground: 0 0% 100%;
+    --primary: 221 83% 58%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 222 47% 15%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 222 47% 15%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 222 47% 15%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217 32% 17%;
+    --input: 217 32% 17%;
+    --ring: 221 83% 58%;
+    --radius: 1.25rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-white/10;
+    font-style: normal !important;
+  }
+  body {
+    font-family: 'Plus Jakarta Sans', sans-serif !important;
+    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #312e81 100%);
+    @apply min-h-screen text-white antialiased;
+  }
+  h1, h2, h3, h4, h5, h6, p, span, div, button, input, textarea, select {
+    font-family: 'Plus Jakarta Sans', sans-serif !important;
+    font-style: normal !important;
+    letter-spacing: normal !important;
+  }
+}
+
+.glass {
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-card:hover {
+  background: rgba(255, 255, 255, 0.07);
+  transform: translateY(-4px);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.futuristic-gradient {
+  @apply bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500;
+}
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+.animate-fade-in { animation: fadeIn 0.3s ease-out; }
+.animate-slide-up { animation: slideUp 0.4s ease-out; }
+
+.text-gradient {
+  @apply bg-clip-text text-transparent bg-gradient-to-r from-white via-indigo-200 to-white;
+}
+
+/* Fix Select behavior: solid background, no italic */
+[data-radix-select-viewport] {
+  background-color: #0f172a !important;
+  @apply border border-white/10 rounded-xl shadow-2xl;
+}
+
+.select-content-solid {
+  background-color: #0f172a !important;
+  backdrop-filter: none !important;
+  font-style: normal !important;
+}
+
+option, [role="option"] {
+  font-style: normal !important;
+  font-family: 'Plus Jakarta Sans', sans-serif !important;
+}

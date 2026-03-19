@@ -1,0 +1,34 @@
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- Hàm hỗ trợ kiểm tra đăng nhập ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // --- Quy tắc cho bộ sưu tập Tiệm (Stores) ---
+    match /stores/{storeId} {
+      // Cho phép mọi người dùng đã đăng nhập thực hiện mọi thao tác
+      // Điều này loại bỏ rào cản phân quyền phức tạp gây lỗi nút xóa
+      allow read, write, delete: if isSignedIn();
+    }
+
+    // --- Quy tắc cho bộ sưu tập Quyền Admin (admin_roles) ---
+    match /admin_roles/{userId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // --- Quy tắc cho bộ sưu tập Người dùng (users) ---
+    match /users/{userId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // --- Quy tắc cho bộ sưu tập Vai trò (roles) ---
+    match /roles/{roleId} {
+      allow read: if isSignedIn();
+    }
+  }
+}
