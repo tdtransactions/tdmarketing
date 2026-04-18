@@ -30,6 +30,11 @@ const formSchema = z.object({
   googleBusinessLink: z.string().optional(),
   googleVerified: z.boolean().default(false),
   package: z.string().min(1, "Vui lòng chọn"),
+  hasWebsite: z.boolean().default(false),
+  websiteStatus: z.string().default("pending"),
+  websiteStartDate: z.string().optional(),
+  websiteEndDate: z.string().optional(),
+  websiteNote: z.string().optional(),
   assignedTo: z.any(),
   salesPerson: z.string().optional(),
   paymentTypes: z.string().optional(),
@@ -59,6 +64,11 @@ export function StoreForm({ initialData, onSubmit }: { initialData?: Partial<Sto
       googleBusinessLink: initialData?.googleBusinessLink || "",
       googleVerified: initialData?.googleVerified || false,
       package: initialData?.package || "PRO",
+      hasWebsite: initialData?.hasWebsite || false,
+      websiteStatus: initialData?.websiteStatus || "pending",
+      websiteStartDate: initialData?.websiteStartDate || "",
+      websiteEndDate: initialData?.websiteEndDate || "",
+      websiteNote: initialData?.websiteNote || "",
       assignedTo: Array.isArray(initialData?.assignedTo) ? initialData.assignedTo : (initialData?.assignedTo ? [initialData.assignedTo as string] : []),
       salesPerson: initialData?.salesPerson || "",
       paymentTypes: initialData?.paymentTypes || "Zelle",
@@ -213,6 +223,79 @@ export function StoreForm({ initialData, onSubmit }: { initialData?: Partial<Sto
                 </FormItem>
               )}
             />
+
+            <FormField
+              control={form.control}
+              name="hasWebsite"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-center space-x-4 space-y-0 rounded-2xl border border-white/5 p-6 bg-white/5 group hover:border-primary/30 transition-all">
+                  <FormControl>
+                    <Checkbox
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                      className="w-6 h-6 border-white/20 data-[state=checked]:bg-primary"
+                    />
+                  </FormControl>
+                  <div className="space-y-1">
+                    <FormLabel className="text-xs font-black uppercase tracking-normal text-white group-hover:text-primary transition-colors cursor-pointer">
+                      Có làm Website
+                    </FormLabel>
+                  </div>
+                </FormItem>
+              )}
+            />
+
+            {form.watch("hasWebsite") && (
+              <div className="md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-6 bg-indigo-500/5 p-8 rounded-[2rem] border border-indigo-500/20 mt-4">
+                <div className="md:col-span-2">
+                  <h3 className="text-xs font-black uppercase text-indigo-400 mb-4 flex items-center gap-2">
+                    <Globe className="w-4 h-4" /> Thông tin dự án Website
+                  </h3>
+                </div>
+                <FormField
+                  control={form.control}
+                  name="websiteStartDate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-[10px] font-black uppercase tracking-normal text-slate-400 flex items-center gap-2">
+                        <Calendar className="w-3 h-3 text-indigo-400" /> Bắt đầu Website
+                      </FormLabel>
+                      <FormControl>
+                        <Input type="date" className="bg-white/5 border-white/10 text-white font-bold h-12 rounded-xl focus:border-indigo-400/50" {...field} />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="websiteEndDate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-[10px] font-black uppercase tracking-normal text-slate-400 flex items-center gap-2">
+                        <Calendar className="w-3 h-3 text-red-400" /> Kết thúc Website
+                      </FormLabel>
+                      <FormControl>
+                        <Input type="date" className="bg-white/5 border-white/10 text-white font-bold h-12 rounded-xl focus:border-indigo-400/50" {...field} />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                <div className="md:col-span-2">
+                  <FormField
+                    control={form.control}
+                    name="websiteNote"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-[10px] font-black uppercase tracking-normal text-slate-400">Ghi chú Website (Không bắt buộc)</FormLabel>
+                        <FormControl>
+                          <Textarea placeholder="Các yêu cầu đặc biệt cho website..." className="bg-white/5 border-white/10 text-white min-h-[80px] font-bold rounded-xl focus:border-indigo-400/50 p-4" {...field} />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+            )}
 
             <FormField
               control={form.control}

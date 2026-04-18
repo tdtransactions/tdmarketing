@@ -15,7 +15,7 @@ import { Save, X, ShieldCheck, Key, Mail, User } from "lucide-react";
 const formSchema = z.object({
   email: z.string().email("Email không hợp lệ"),
   displayName: z.string().min(2, "Tên quá ngắn"),
-  role: z.enum(["Admin", "Staff", "Manager"]),
+  role: z.enum(["Admin", "Staff", "Manager", "Sale"]),
   status: z.enum(["Active", "Inactive"]),
   password: z.string().min(1, "Vui lòng nhập mật khẩu"),
 });
@@ -114,6 +114,7 @@ export function UserForm({ initialData, onSubmit, onCancel }: UserFormProps) {
                           <SelectItem value="Admin" className="font-bold uppercase">Admin (Toàn quyền)</SelectItem>
                           <SelectItem value="Manager" className="font-bold uppercase">Manager (Quản lý)</SelectItem>
                           <SelectItem value="Staff" className="font-bold uppercase">Staff (Nhân viên)</SelectItem>
+                          <SelectItem value="Sale" className="font-bold uppercase">Sale (Kinh doanh)</SelectItem>
                         </SelectContent>
                       </Select>
                     </FormItem>

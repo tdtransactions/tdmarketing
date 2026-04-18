@@ -12,7 +12,7 @@ export type UserProfile = {
   email: string;
   displayName: string;
   password?: string;
-  role: 'Admin' | 'Staff' | 'Manager';
+  role: 'Admin' | 'Staff' | 'Manager' | 'Sale';
   status: 'Active' | 'Inactive';
   permissions?: UserPermissions;
   createdAt: number;

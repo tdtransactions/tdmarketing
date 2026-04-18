@@ -21,8 +21,12 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (mounted && !loading && !profile && pathname !== '/login') {
-      router.replace('/login');
+    if (mounted && !loading) {
+      if (!profile && pathname !== '/login') {
+        router.replace('/login');
+      } else if (profile?.role === 'Sale' && !pathname.startsWith('/requests') && pathname !== '/login') {
+        router.replace('/requests');
+      }
     }
   }, [profile, loading, pathname, router, mounted]);
 

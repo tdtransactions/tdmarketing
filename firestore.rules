@@ -9,6 +9,11 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // --- Hàm hỗ trợ kiểm tra quyền Admin ---
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admin_roles/$(request.auth.uid));
+    }
+
     // --- Quy tắc cho bộ sưu tập Tiệm (Stores) ---
     match /stores/{storeId} {
       // Cho phép mọi người dùng đã đăng nhập thực hiện mọi thao tác
@@ -29,6 +34,29 @@ service cloud.firestore {
     // --- Quy tắc cho bộ sưu tập Vai trò (roles) ---
     match /roles/{roleId} {
       allow read: if isSignedIn();
+    }
+
+    // --- Quy tắc cho bộ sưu tập Yêu cầu (sales_requests) ---
+    match /sales_requests/{requestId} {
+      // Sales và Admin đều có thể xem và tạo yêu cầu mới
+      allow read, create: if isSignedIn();
+      
+      // Admin được phép cập nhật mọi thứ.
+      // Sales (không phải Admin) CHỈ được phép đổi trạng thái thành 'closed' khi kết thúc yêu cầu.
+      allow update: if isAdmin() || (
+        isSignedIn() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'closedAt', 'updatedAt']) &&
+        request.resource.data.status == 'closed'
+      );
+      
+      // CHỈ Admin mới có quyền xóa yêu cầu
+      allow delete: if isAdmin();
+    }
+
+    // --- Quy tắc cho Nhân sự nội bộ (internal_staff) ---
+    match /internal_staff/{staffId} {
+      allow read: if request.auth != null;
+      allow create, update, delete: if request.auth != null; // Tạm thời mở rộng để debug
     }
   }
 }

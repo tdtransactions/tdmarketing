@@ -12,6 +12,11 @@ export type StoreEntry = {
   googleBusinessLink?: string;
   googleVerified: boolean;
   package: "PRO" | "PLUS" | string;
+  hasWebsite?: boolean;
+  websiteStatus?: "pending" | "completed";
+  websiteStartDate?: string;
+  websiteEndDate?: string;
+  websiteNote?: string;
   dateRange?: string;
   assignedTo?: string[];
   salesPerson?: string;

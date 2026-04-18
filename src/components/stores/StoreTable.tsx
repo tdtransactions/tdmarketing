@@ -7,6 +7,7 @@ import { Search, Edit, Trash2, Eye, MapPin, AlertTriangle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { useFirebase, useFirestore } from "@/firebase";
@@ -32,14 +33,17 @@ interface StoreTableProps {
 
 export function StoreTable({ stores, isAdmin }: StoreTableProps) {
   const [search, setSearch] = useState("");
+  const [packageFilter, setPackageFilter] = useState("ALL");
   const { profile } = useFirebase();
   const firestore = useFirestore();
 
-  const filteredStores = stores.filter(store => 
-    store.storeName?.toLowerCase().includes(search.toLowerCase()) ||
-    store.customerName?.toLowerCase().includes(search.toLowerCase()) ||
-    (store.customerPhone && store.customerPhone.includes(search))
-  );
+  const filteredStores = stores.filter(store => {
+    const matchesSearch = store.storeName?.toLowerCase().includes(search.toLowerCase()) ||
+                          store.customerName?.toLowerCase().includes(search.toLowerCase()) ||
+                          (store.customerPhone && store.customerPhone.includes(search));
+    const matchesPackage = packageFilter === "ALL" || store.package === packageFilter;
+    return matchesSearch && matchesPackage;
+  });
 
   const isActualAdmin = profile?.role === "Admin";
 
@@ -55,14 +59,29 @@ export function StoreTable({ stores, isAdmin }: StoreTableProps) {
 
   return (
     <div className="space-y-8 p-10">
-      <div className="relative max-w-md group">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600 w-4 h-4 group-focus-within:text-primary transition-colors" />
-        <Input 
-          placeholder="Tìm kiếm theo tên tiệm, khách hàng..." 
-          className="pl-12 h-14 bg-white/5 border-white/10 text-xs font-black placeholder:text-slate-600 rounded-2xl focus:border-primary/50 transition-all text-white uppercase tracking-normal"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+      <div className="flex flex-col md:flex-row gap-4">
+        <div className="relative flex-1 group">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600 w-4 h-4 group-focus-within:text-primary transition-colors" />
+          <Input 
+            placeholder="Tìm kiếm theo tên tiệm, khách hàng..." 
+            className="pl-12 h-14 bg-white/5 border-white/10 text-xs font-black placeholder:text-slate-600 rounded-2xl focus:border-primary/50 transition-all text-white uppercase tracking-normal"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        
+        <div className="w-full md:w-48">
+          <Select value={packageFilter} onValueChange={setPackageFilter}>
+            <SelectTrigger className="bg-white/5 border-white/10 text-white font-bold h-14 rounded-2xl focus:ring-primary/50">
+              <SelectValue placeholder="Chọn gói" />
+            </SelectTrigger>
+            <SelectContent className="select-content-solid border-white/10 text-white">
+              <SelectItem value="ALL" className="font-bold">TẤT CẢ GÓI</SelectItem>
+              <SelectItem value="PRO" className="font-bold">GÓI PRO</SelectItem>
+              <SelectItem value="PLUS" className="font-bold">GÓI PLUS</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-3xl border border-white/5">
