@@ -2,6 +2,7 @@
 
 import { useDoc, useFirestore, useMemoFirebase } from "@/firebase";
 import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { useState } from "react";
 import { StoreForm } from "@/components/stores/StoreForm";
 import { useRouter } from "next/navigation";
 import { toast } from "@/hooks/use-toast";
@@ -14,6 +15,7 @@ export default function EditStorePage({ params }: { params: Promise<{ id: string
   const { id } = use(params);
   const firestore = useFirestore();
   const router = useRouter();
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const storeRef = useMemoFirebase(() => {
     if (!firestore || !id) return null;
@@ -25,6 +27,7 @@ export default function EditStorePage({ params }: { params: Promise<{ id: string
   const handleUpdate = async (values: StoreEntry) => {
     if (!firestore || !id) return;
 
+    setIsSubmitting(true);
     try {
       // Loại bỏ các trường undefined để tránh lỗi Firestore
       const cleanData = Object.fromEntries(
@@ -44,6 +47,7 @@ export default function EditStorePage({ params }: { params: Promise<{ id: string
         title: "LỖI CẬP NHẬT", 
         description: e.message || "Không thể lưu thay đổi vào cơ sở dữ liệu." 
       });
+      setIsSubmitting(false);
     }
   };
 
@@ -80,7 +84,7 @@ export default function EditStorePage({ params }: { params: Promise<{ id: string
           </p>
         </div>
       </header>
-      <StoreForm initialData={store} onSubmit={handleUpdate} />
+      <StoreForm initialData={store} onSubmit={handleUpdate} isSubmitting={isSubmitting} />
     </div>
   );
 }

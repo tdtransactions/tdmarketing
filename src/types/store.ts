@@ -25,7 +25,17 @@ export type StoreEntry = {
   duration?: string;
   follow?: string;
   note?: string;
+  serviceType?: "both" | "social" | "website";
   responsibleUserId?: string;
+  seoRankInitial?: {
+    rank: string;
+    date: string;
+  };
+  seoRankLatest?: {
+    rank: string;
+    date: string;
+    durationLabel: string;
+  };
   createdAt?: number | object;
   updatedAt?: number | object;
 };

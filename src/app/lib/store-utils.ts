@@ -5,40 +5,42 @@ import { StoreEntry } from "@/types/store";
  * Yêu cầu: Phải điền đầy đủ tất cả các trường ngoại trừ 'note'.
  */
 export function isStoreIncomplete(store: StoreEntry): boolean {
-  const requiredFields: (keyof StoreEntry)[] = [
-    'startDate',
-    'endDate',
-    'storeName',
-    'customerName',
-    'address',
-    'customerPhone',
-    'package',
-    'salesPerson',
-    'paymentTypes',
-    'amount',
-    'facebookLink',
-    'instagramLink',
-    'googleWebsiteLink',
-    'googleBusinessLink'
-  ];
+  const type = store.serviceType || 'both';
   
-  // Kiểm tra các trường cơ bản
-  const missingBasicField = requiredFields.some(field => {
-    const value = store[field];
-    return value === undefined || value === null || String(value).trim() === '';
-  });
+  const basicFields: (keyof StoreEntry)[] = [
+    'startDate', 'endDate', 'storeName', 'customerName', 'address', 
+    'customerPhone', 'package', 'salesPerson', 'paymentTypes', 'amount'
+  ];
 
-  // Kiểm tra riêng phần assignedTo (mảng người phụ trách)
+  const socialFields: (keyof StoreEntry)[] = ['facebookLink', 'instagramLink', 'googleBusinessLink'];
+  const websiteFields: (keyof StoreEntry)[] = ['googleWebsiteLink'];
+
+  const checkFields = (fields: (keyof StoreEntry)[]) => 
+    fields.some(field => {
+      const value = store[field];
+      return value === undefined || value === null || String(value).trim() === '';
+    });
+
+  const basicMissing = checkFields(basicFields);
+  
+  let contentMissing = false;
+  if (type === 'both') {
+    contentMissing = checkFields(socialFields) || checkFields(websiteFields);
+  } else if (type === 'social') {
+    contentMissing = checkFields(socialFields);
+  } else if (type === 'website') {
+    contentMissing = checkFields(websiteFields);
+  }
+
   const assigned = store.assignedTo;
   let noAssignedUser = true;
-
   if (Array.isArray(assigned)) {
     noAssignedUser = assigned.length === 0;
   } else if (typeof assigned === 'string' && (assigned as string).trim() !== '') {
     noAssignedUser = false;
   }
 
-  return missingBasicField || noAssignedUser;
+  return basicMissing || contentMissing || noAssignedUser;
 }
 
 export function getStatusColor(store: StoreEntry) {

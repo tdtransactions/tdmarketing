@@ -11,11 +11,15 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Save, Facebook, Instagram, Globe, User, UserCheck, DollarSign, ChevronDown, Store, Calendar, MapPin, Phone } from "lucide-react";
+import { Save, Facebook, Instagram, Globe, User, UserCheck, DollarSign, ChevronDown, Store, Calendar, MapPin, Phone, Gift, Clock, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useDatabaseList } from "@/firebase";
+import { useDatabaseList, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
+import { collection, query, where } from "firebase/firestore";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { useEffect } from "react";
+import { addMonths, format, parseISO } from "date-fns";
+import { InternalStaff } from "@/types/staff";
 
 const formSchema = z.object({
   startDate: z.string().min(1, "Thông tin bắt buộc"),
@@ -29,6 +33,8 @@ const formSchema = z.object({
   googleWebsiteLink: z.string().optional(),
   googleBusinessLink: z.string().optional(),
   googleVerified: z.boolean().default(false),
+  packageMonths: z.string().optional(),
+  bonusMonths: z.string().optional(),
   package: z.string().min(1, "Vui lòng chọn"),
   hasWebsite: z.boolean().default(false),
   websiteStatus: z.string().default("pending"),
@@ -40,14 +46,22 @@ const formSchema = z.object({
   paymentTypes: z.string().optional(),
   amount: z.string().optional(),
   duration: z.string().optional(),
+  serviceType: z.enum(["both", "social", "website"]).default("both"),
   note: z.string().optional(),
 });
 
 const staffList = ["Hiển", "Hằng", "Hùng", "Loan", "Mi Mi", "Ngân"];
 
-export function StoreForm({ initialData, onSubmit }: { initialData?: Partial<StoreEntry>, onSubmit: (values: StoreEntry) => void }) {
+export function StoreForm({ initialData, onSubmit, isSubmitting }: { initialData?: Partial<StoreEntry>, onSubmit: (values: StoreEntry) => void, isSubmitting?: boolean }) {
   const router = useRouter();
-  const { data: salesPersonsDb } = useDatabaseList("metadata/sales_persons");
+  const firestore = useFirestore();
+  
+  const salesQuery = useMemoFirebase(() => {
+    if (!firestore) return null;
+    return query(collection(firestore, "internal_staff"), where("roles", "array-contains", "Sale"));
+  }, [firestore]);
+
+  const { data: salesStaff } = useCollection<InternalStaff>(salesQuery);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -74,9 +88,29 @@ export function StoreForm({ initialData, onSubmit }: { initialData?: Partial<Sto
       paymentTypes: initialData?.paymentTypes || "Zelle",
       amount: initialData?.amount || "",
       duration: initialData?.duration || "",
+      packageMonths: "",
+      bonusMonths: "0",
+      serviceType: (initialData?.serviceType as any) || "both",
       note: initialData?.note || "",
     },
   });
+
+  const startDate = form.watch("startDate");
+  const packageMonths = form.watch("packageMonths");
+  const bonusMonths = form.watch("bonusMonths");
+
+  useEffect(() => {
+    if (startDate && packageMonths) {
+      try {
+        const start = parseISO(startDate);
+        const totalMonths = parseInt(packageMonths) + (parseInt(bonusMonths || "0"));
+        const end = addMonths(start, totalMonths);
+        form.setValue("endDate", format(end, "yyyy-MM-dd"));
+      } catch (e) {
+        console.error("Error calculating end date", e);
+      }
+    }
+  }, [startDate, packageMonths, bonusMonths, form]);
 
   return (
     <Form {...form}>
@@ -88,13 +122,60 @@ export function StoreForm({ initialData, onSubmit }: { initialData?: Partial<Sto
               name="startDate"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-xs font-black uppercase tracking-normal text-white flex items-center gap-2">
+                  <FormLabel className="text-sm font-black uppercase tracking-normal text-white flex items-center gap-2">
                     <Calendar className="w-3 h-3 text-primary" /> Ngày Bắt Đầu
                   </FormLabel>
                   <FormControl>
                     <Input type="date" className="bg-white/5 border-white/10 text-white font-bold h-14 rounded-2xl focus:border-primary/50" {...field} />
                   </FormControl>
-                  <FormMessage className="text-[10px] font-black uppercase" />
+                  <FormMessage className="text-xs font-black uppercase" />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="packageMonths"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-sm font-black uppercase tracking-normal text-white flex items-center gap-2">
+                    <Clock className="w-3 h-3 text-primary" /> Gói (Tháng)
+                  </FormLabel>
+                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <FormControl>
+                      <SelectTrigger className="bg-white/5 border-white/10 text-white font-bold h-14 rounded-2xl focus:ring-primary/50">
+                        <SelectValue placeholder="Chọn số tháng" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent className="select-content-solid border-white/10 text-white">
+                      <SelectItem value="3" className="font-bold">3 THÁNG</SelectItem>
+                      <SelectItem value="6" className="font-bold">6 THÁNG</SelectItem>
+                      <SelectItem value="12" className="font-bold">12 THÁNG</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="bonusMonths"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-sm font-black uppercase tracking-normal text-white flex items-center gap-2">
+                    <Gift className="w-3 h-3 text-emerald-400" /> Tặng (Tháng)
+                  </FormLabel>
+                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <FormControl>
+                      <SelectTrigger className="bg-white/5 border-white/10 text-white font-bold h-14 rounded-2xl focus:ring-primary/50">
+                        <SelectValue placeholder="Chọn số tháng tặng" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent className="select-content-solid border-white/10 text-white">
+                      <SelectItem value="0" className="font-bold">0 THÁNG</SelectItem>
+                      <SelectItem value="1" className="font-bold">1 THÁNG</SelectItem>
+                      <SelectItem value="2" className="font-bold">2 THÁNG</SelectItem>
+                      <SelectItem value="3" className="font-bold">3 THÁNG</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </FormItem>
               )}
             />
@@ -103,13 +184,13 @@ export function StoreForm({ initialData, onSubmit }: { initialData?: Partial<Sto
               name="endDate"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-xs font-black uppercase tracking-normal text-white flex items-center gap-2">
-                    <Calendar className="w-3 h-3 text-red-500" /> Ngày Kết Thúc
+                  <FormLabel className="text-sm font-black uppercase tracking-normal text-white flex items-center gap-2">
+                    <Calendar className="w-3 h-3 text-red-500" /> Ngày Kết Thúc (Tự động)
                   </FormLabel>
                   <FormControl>
                     <Input type="date" className="bg-white/5 border-white/10 text-white font-bold h-14 rounded-2xl focus:border-primary/50" {...field} />
                   </FormControl>
-                  <FormMessage className="text-[10px] font-black uppercase" />
+                  <FormMessage className="text-xs font-black uppercase" />
                 </FormItem>
               )}
             />
@@ -118,13 +199,13 @@ export function StoreForm({ initialData, onSubmit }: { initialData?: Partial<Sto
               name="storeName"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-xs font-black uppercase tracking-normal text-white flex items-center gap-2">
+                  <FormLabel className="text-sm font-black uppercase tracking-normal text-white flex items-center gap-2">
                     <Store className="w-3 h-3 text-primary" /> Tên Tiệm
                   </FormLabel>
                   <FormControl>
                     <Input placeholder="Nhập tên tiệm..." className="bg-white/5 border-white/10 text-white font-bold h-14 rounded-2xl focus:border-primary/50 placeholder:text-slate-600" {...field} />
                   </FormControl>
-                  <FormMessage className="text-[10px] font-black uppercase" />
+                  <FormMessage className="text-xs font-black uppercase" />
                 </FormItem>
               )}
             />
@@ -133,13 +214,13 @@ export function StoreForm({ initialData, onSubmit }: { initialData?: Partial<Sto
               name="customerName"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-xs font-black uppercase tracking-normal text-white flex items-center gap-2">
+                  <FormLabel className="text-sm font-black uppercase tracking-normal text-white flex items-center gap-2">
                     <User className="w-3 h-3 text-primary" /> Chủ Tiệm / Liên Hệ
                   </FormLabel>
                   <FormControl>
                     <Input placeholder="Nhập tên khách hàng..." className="bg-white/5 border-white/10 text-white font-bold h-14 rounded-2xl focus:border-primary/50 placeholder:text-slate-600" {...field} />
                   </FormControl>
-                  <FormMessage className="text-[10px] font-black uppercase" />
+                  <FormMessage className="text-xs font-black uppercase" />
                 </FormItem>
               )}
             />
@@ -192,13 +273,35 @@ export function StoreForm({ initialData, onSubmit }: { initialData?: Partial<Sto
               name="customerPhone"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-xs font-black uppercase tracking-normal text-white flex items-center gap-2">
+                  <FormLabel className="text-sm font-black uppercase tracking-normal text-white flex items-center gap-2">
                     <Phone className="w-3 h-3 text-primary" /> Số Điện Thoại
                   </FormLabel>
                   <FormControl>
                     <Input placeholder="Số điện thoại / Line..." className="bg-white/5 border-white/10 text-white font-bold h-14 rounded-2xl focus:border-primary/50 placeholder:text-slate-600" {...field} />
                   </FormControl>
-                  <FormMessage className="text-[10px] font-black uppercase" />
+                  <FormMessage className="text-xs font-black uppercase" />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="serviceType"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-sm font-black uppercase tracking-normal text-white">Loại Dịch Vụ</FormLabel>
+                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <FormControl>
+                      <SelectTrigger className="bg-white/5 border-white/10 text-white font-bold h-14 rounded-2xl focus:ring-primary/50">
+                        <SelectValue placeholder="Chọn loại dịch vụ" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent className="select-content-solid border-white/10 text-white">
+                      <SelectItem value="both" className="font-bold">SOCIAL + WEBSITE</SelectItem>
+                      <SelectItem value="social" className="font-bold">CHỈ SOCIAL</SelectItem>
+                      <SelectItem value="website" className="font-bold">CHỈ WEBSITE</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </FormItem>
               )}
             />
@@ -208,7 +311,7 @@ export function StoreForm({ initialData, onSubmit }: { initialData?: Partial<Sto
               name="package"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-xs font-black uppercase tracking-normal text-white">Gói Dịch Vụ</FormLabel>
+                  <FormLabel className="text-sm font-black uppercase tracking-normal text-white">Gói Dịch Vụ</FormLabel>
                   <Select onValueChange={field.onChange} defaultValue={field.value}>
                     <FormControl>
                       <SelectTrigger className="bg-white/5 border-white/10 text-white font-bold h-14 rounded-2xl focus:ring-primary/50">
@@ -257,7 +360,7 @@ export function StoreForm({ initialData, onSubmit }: { initialData?: Partial<Sto
                   name="websiteStartDate"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-[10px] font-black uppercase tracking-normal text-slate-400 flex items-center gap-2">
+                      <FormLabel className="text-xs font-black uppercase tracking-normal text-slate-400 flex items-center gap-2">
                         <Calendar className="w-3 h-3 text-indigo-400" /> Bắt đầu Website
                       </FormLabel>
                       <FormControl>
@@ -271,7 +374,7 @@ export function StoreForm({ initialData, onSubmit }: { initialData?: Partial<Sto
                   name="websiteEndDate"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-[10px] font-black uppercase tracking-normal text-slate-400 flex items-center gap-2">
+                      <FormLabel className="text-xs font-black uppercase tracking-normal text-slate-400 flex items-center gap-2">
                         <Calendar className="w-3 h-3 text-red-400" /> Kết thúc Website
                       </FormLabel>
                       <FormControl>
@@ -286,7 +389,7 @@ export function StoreForm({ initialData, onSubmit }: { initialData?: Partial<Sto
                     name="websiteNote"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="text-[10px] font-black uppercase tracking-normal text-slate-400">Ghi chú Website (Không bắt buộc)</FormLabel>
+                        <FormLabel className="text-xs font-black uppercase tracking-normal text-slate-400">Ghi chú Website (Không bắt buộc)</FormLabel>
                         <FormControl>
                           <Textarea placeholder="Các yêu cầu đặc biệt cho website..." className="bg-white/5 border-white/10 text-white min-h-[80px] font-bold rounded-xl focus:border-indigo-400/50 p-4" {...field} />
                         </FormControl>
@@ -327,21 +430,20 @@ export function StoreForm({ initialData, onSubmit }: { initialData?: Partial<Sto
               render={({ field }) => (
                 <FormItem>
                   <FormLabel className="text-xs font-black uppercase tracking-normal text-white flex items-center gap-2"><UserCheck className="w-3 h-3 text-primary" /> Nhân Viên Sales</FormLabel>
-                  <FormControl>
-                    <div className="relative">
-                      <Input 
-                        list="sales_persons_list" 
-                        placeholder="Chọn hoặc nhập tên..." 
-                        className="bg-white/5 border-white/10 text-white font-bold h-14 rounded-2xl focus:border-primary/50 placeholder:text-slate-600"
-                        {...field} 
-                      />
-                      <datalist id="sales_persons_list">
-                        {salesPersonsDb?.map((s: any) => (
-                          <option key={s.id} value={s.name} />
-                        ))}
-                      </datalist>
-                    </div>
-                  </FormControl>
+                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <FormControl>
+                      <SelectTrigger className="bg-white/5 border-white/10 text-white font-bold h-14 rounded-2xl focus:ring-primary/50">
+                        <SelectValue placeholder="Chọn nhân viên sales" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent className="select-content-solid border-white/10 text-white">
+                      {salesStaff?.map((s) => (
+                        <SelectItem key={s.id} value={s.name} className="font-bold uppercase tracking-normal">
+                          {s.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </FormItem>
               )}
             />
@@ -402,7 +504,7 @@ export function StoreForm({ initialData, onSubmit }: { initialData?: Partial<Sto
               name="amount"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-xs font-black uppercase tracking-normal text-white">Số Tiền Thanh Toán ($)</FormLabel>
+                  <FormLabel className="text-sm font-black uppercase tracking-normal text-white">Số Tiền Thanh Toán ($)</FormLabel>
                   <FormControl><Input placeholder="Nhập số tiền..." className="bg-white/5 border-white/10 text-white font-black h-14 rounded-2xl focus:border-primary/50 text-xl tracking-tight" {...field} /></FormControl>
                 </FormItem>
               )}
@@ -447,7 +549,7 @@ export function StoreForm({ initialData, onSubmit }: { initialData?: Partial<Sto
                 name="note"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-xs font-black uppercase tracking-normal text-white">Ghi Chú Nội Bộ (Không bắt buộc)</FormLabel>
+                    <FormLabel className="text-sm font-black uppercase tracking-normal text-white">Ghi Chú Nội Bộ (Không bắt buộc)</FormLabel>
                     <FormControl><Textarea placeholder="Nhập các ghi chú quan trọng..." className="bg-white/5 border-white/10 text-white min-h-[150px] font-bold rounded-2xl focus:border-primary/50 p-6" {...field} /></FormControl>
                   </FormItem>
                 )}
@@ -460,8 +562,22 @@ export function StoreForm({ initialData, onSubmit }: { initialData?: Partial<Sto
           <Button variant="ghost" type="button" onClick={() => router.back()} className="font-black uppercase tracking-widest text-xs text-slate-500 hover:text-white hover:bg-white/5 h-14 px-8 rounded-2xl">
             Hủy Bỏ
           </Button>
-          <Button type="submit" className="futuristic-gradient text-white font-black h-14 px-12 shadow-2xl shadow-primary/30 uppercase tracking-widest text-xs rounded-2xl border border-white/20 active:scale-95 transition-all">
-            <Save className="w-4 h-4 mr-3" /> Lưu Thông Tin
+          <Button 
+            type="submit" 
+            disabled={isSubmitting}
+            className="futuristic-gradient text-white font-black h-14 px-12 shadow-2xl shadow-primary/30 uppercase tracking-widest text-xs rounded-2xl border border-white/20 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-3 animate-spin" /> 
+                Đang Lưu...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4 mr-3" /> 
+                Lưu Thông Tin
+              </>
+            )}
           </Button>
         </div>
       </form>

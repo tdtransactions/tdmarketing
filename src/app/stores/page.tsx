@@ -34,14 +34,14 @@ export default function StoresPage() {
       <header className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-black tracking-normal text-white uppercase">Quản Lý Tiệm</h2>
-          <p className="text-slate-500 font-black text-[10px] uppercase tracking-widest mt-1">
+          <p className="text-slate-500 font-black text-sm uppercase tracking-widest mt-1">
             TỔNG SỐ: <span className="text-white">{stores?.length || 0}</span> HỒ SƠ ĐÃ GHI NHẬN
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" className="rounded-xl glass text-white border-white/10 hover:bg-white/5 h-11 px-6 font-black text-[10px] uppercase tracking-widest"><Filter className="w-4 h-4 mr-2" /> Lọc</Button>
+          <Button variant="outline" className="rounded-xl glass text-white border-white/10 hover:bg-white/5 h-12 px-6 font-black text-xs uppercase tracking-widest"><Filter className="w-4 h-4 mr-2" /> Lọc</Button>
           {isAdmin && (
-            <Button asChild className="futuristic-gradient text-white font-black rounded-xl border border-white/20 shadow-lg shadow-primary/20 h-11 px-6 text-[10px] uppercase tracking-widest">
+            <Button asChild className="futuristic-gradient text-white font-black rounded-xl border border-white/20 shadow-lg shadow-primary/20 h-12 px-8 text-xs uppercase tracking-widest">
               <Link href="/stores/new"><Plus className="w-4 h-4 mr-2" /> Thêm Tiệm</Link>
             </Button>
           )}

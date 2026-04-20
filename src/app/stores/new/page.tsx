@@ -1,11 +1,11 @@
 "use client";
 
 import { useFirestore, useUser } from "@/firebase";
+import { useState, useEffect } from "react";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { StoreForm } from "@/components/stores/StoreForm";
 import { useRouter } from "next/navigation";
 import { toast } from "@/hooks/use-toast";
-import { useEffect } from "react";
 import { Shield } from "lucide-react";
 import type { StoreEntry } from "@/types/store";
 
@@ -13,6 +13,7 @@ export default function NewStorePage() {
   const firestore = useFirestore();
   const { profile, loading: isUserLoading } = useUser();
   const router = useRouter();
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (!isUserLoading && profile && profile.role !== "Admin") {
@@ -31,6 +32,7 @@ export default function NewStorePage() {
       return;
     }
     
+    setIsSubmitting(true);
     try {
       const cleanData = Object.fromEntries(
         Object.entries(values).filter(([_, v]) => v !== undefined && v !== null && v !== "")
@@ -51,6 +53,7 @@ export default function NewStorePage() {
         title: "LỖI CƠ SỞ DỮ LIỆU", 
         description: "Không thể lưu dữ liệu tiệm." 
       });
+      setIsSubmitting(false);
     }
   };
 
@@ -72,7 +75,7 @@ export default function NewStorePage() {
           <Shield className="w-3 h-3 text-primary" /> Quyền Quản Trị Đang Hoạt Động // Đồng Bộ Thời Gian Thực
         </p>
       </header>
-      <StoreForm onSubmit={handleCreate} />
+      <StoreForm onSubmit={handleCreate} isSubmitting={isSubmitting} />
     </div>
   );
 }
