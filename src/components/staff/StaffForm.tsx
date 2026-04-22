@@ -18,6 +18,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { UserPlus, UserCheck, Briefcase, Shield, Loader2 } from "lucide-react";
 import { InternalStaff } from "@/types/staff";
 
+import { Mail } from "lucide-react";
+
 const ROLE_OPTIONS = [
   { id: "POS", label: "POS" },
   { id: "Marketing", label: "Marketing" },
@@ -26,6 +28,7 @@ const ROLE_OPTIONS = [
 
 const formSchema = z.object({
   name: z.string().min(1, "Vui lòng nhập họ tên"),
+  email: z.string().email("Email không hợp lệ").optional().or(z.literal("")),
   roles: z.array(z.string()).min(1, "Vui lòng chọn ít nhất một vai trò"),
 });
 
@@ -41,6 +44,7 @@ export function StaffForm({ initialData, onSubmit, onCancel, isSubmitting }: Sta
     resolver: zodResolver(formSchema),
     defaultValues: {
       name: initialData?.name || "",
+      email: initialData?.email || "",
       roles: initialData?.roles || [],
     },
   });
@@ -67,6 +71,27 @@ export function StaffForm({ initialData, onSubmit, onCancel, isSubmitting }: Sta
                   <FormControl>
                     <Input 
                       placeholder="Ví dụ: Nguyễn Văn A..." 
+                      className="bg-white/5 border-white/10 text-white font-black h-14 rounded-2xl focus:border-primary/50" 
+                      {...field} 
+                    />
+                  </FormControl>
+                  <FormMessage className="text-[10px]" />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="email"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] flex items-center gap-2">
+                    <Mail className="w-3 h-3 text-primary" /> Email Liên Hệ (nhận thông báo)
+                  </FormLabel>
+                  <FormControl>
+                    <Input 
+                      type="email"
+                      placeholder="sale@example.com" 
                       className="bg-white/5 border-white/10 text-white font-black h-14 rounded-2xl focus:border-primary/50" 
                       {...field} 
                     />

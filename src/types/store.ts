@@ -1,5 +1,6 @@
 export type StoreEntry = {
   id?: string;
+  numericId?: number;
   startDate: string;
   endDate: string;
   storeName: string;
@@ -13,7 +14,7 @@ export type StoreEntry = {
   googleVerified: boolean;
   package: "PRO" | "PLUS" | string;
   hasWebsite?: boolean;
-  websiteStatus?: "pending" | "completed";
+  websiteStatus?: "pending" | "processing" | "completed";
   websiteStartDate?: string;
   websiteEndDate?: string;
   websiteNote?: string;

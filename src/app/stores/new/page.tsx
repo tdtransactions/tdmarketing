@@ -34,12 +34,33 @@ export default function NewStorePage() {
     
     setIsSubmitting(true);
     try {
+      // Find the highest numeric ID
+      let nextNumericId = 1;
+      try {
+        const { getDocs, query, collection, orderBy, limit } = await import("firebase/firestore");
+        const q = query(collection(firestore, "stores"), orderBy("numericId", "desc"), limit(1));
+        const querySnapshot = await getDocs(q);
+        
+        if (!querySnapshot.empty) {
+          const highestStore = querySnapshot.docs[0].data();
+          nextNumericId = (highestStore.numericId || 0) + 1;
+        } else {
+          // If no stores with numericId exist, check total count to start from somewhere reasonable
+          const allStoresQ = query(collection(firestore, "stores"));
+          const allSnapshot = await getDocs(allStoresQ);
+          nextNumericId = allSnapshot.size + 1;
+        }
+      } catch (err) {
+        console.error("Error fetching max numericId:", err);
+      }
+
       const cleanData = Object.fromEntries(
         Object.entries(values).filter(([_, v]) => v !== undefined && v !== null && v !== "")
       );
 
       await addDoc(collection(firestore, "stores"), {
         ...cleanData,
+        numericId: nextNumericId,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         responsibleUserId: profile.id

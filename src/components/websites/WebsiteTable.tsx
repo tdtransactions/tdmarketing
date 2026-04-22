@@ -2,13 +2,13 @@
 
 import { useState } from "react";
 import { StoreEntry } from "@/types/store";
-import { Search, Globe, Facebook, Instagram, Phone, UserCheck, Calendar, CheckCircle2, Circle, Save, FileText, Loader2, Store } from "lucide-react";
+import { Search, Globe, Facebook, Instagram, Phone, UserCheck, Calendar, CheckCircle2, Circle, Save, FileText, Loader2, Store, Edit, Clock, Copy, Check, Mail, Send } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useFirestore } from "@/firebase";
-import { doc, updateDoc } from "firebase/firestore";
+import { useFirestore, useCollection, useMemoFirebase } from "@/firebase";
+import { doc, updateDoc, collection } from "firebase/firestore";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
@@ -18,7 +18,18 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { InternalStaff } from "@/types/staff";
 
 interface WebsiteTableProps {
   websites: StoreEntry[];
@@ -29,11 +40,70 @@ export function WebsiteTable({ websites, isAdmin }: WebsiteTableProps) {
   const [search, setSearch] = useState("");
   const [packageFilter, setPackageFilter] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [monthFilter, setMonthFilter] = useState("ALL");
   const [selectedWebsite, setSelectedWebsite] = useState<StoreEntry | null>(null);
   const [note, setNote] = useState("");
   const [isSavingNote, setIsSavingNote] = useState(false);
+  
+  // States for direct editing in sheet
+  const [editWebsiteStartDate, setEditWebsiteStartDate] = useState("");
+  const [editWebsiteEndDate, setEditWebsiteEndDate] = useState("");
+  const [editGoogleWebsiteLink, setEditGoogleWebsiteLink] = useState("");
+  const [isUpdatingDetails, setIsUpdatingDetails] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  
+  // Email notify dialog
+  const [notifyDialog, setNotifyDialog] = useState<{ open: boolean; site: StoreEntry | null; salesEmail: string }>({ open: false, site: null, salesEmail: "" });
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
 
   const firestore = useFirestore();
+
+  // Load staff list to get sales emails
+  const staffQuery = useMemoFirebase(() => {
+    if (!firestore) return null;
+    return collection(firestore, "internal_staff");
+  }, [firestore]);
+  const { data: staffList } = useCollection<InternalStaff>(staffQuery);
+
+  const getSalesEmail = (salesName: string | undefined) => {
+    if (!salesName) return "";
+    return staffList?.find(s => s.name === salesName)?.email || "";
+  };
+
+  const copyToClipboard = (text: string, key: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 2000);
+    });
+  };
+
+  const getMonthDiff = (start: string, end: string) => {
+    if (!start || !end) return null;
+    const s = new Date(start);
+    const e = new Date(end);
+    const months = (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth());
+    return Math.max(0, months);
+  };
+
+  const getRemainingMonths = (end: string) => {
+    if (!end) return null;
+    const now = new Date();
+    const e = new Date(end);
+    const months = (e.getFullYear() - now.getFullYear()) * 12 + (e.getMonth() - now.getMonth());
+    return months;
+  };
+
+  // Extract unique months from websites
+  const uniqueMonths = Array.from(new Set(websites.map(s => {
+    const dateStr = s.websiteStartDate || s.startDate;
+    if (!dateStr) return null;
+    const date = new Date(dateStr);
+    return `${date.getMonth() + 1}/${date.getFullYear()}`;
+  }).filter(Boolean))).sort((a, b) => {
+    const [m1, y1] = a!.split('/').map(Number);
+    const [m2, y2] = b!.split('/').map(Number);
+    return y2 !== y1 ? y2 - y1 : m2 - m1;
+  });
 
   const filteredWebsites = websites.filter(site => {
     const matchesSearch = site.storeName?.toLowerCase().includes(search.toLowerCase()) ||
@@ -41,22 +111,45 @@ export function WebsiteTable({ websites, isAdmin }: WebsiteTableProps) {
                           (site.customerPhone && site.customerPhone.includes(search));
     const matchesPackage = packageFilter === "ALL" || site.package === packageFilter;
     const matchesStatus = statusFilter === "ALL" || site.websiteStatus === statusFilter;
-    return matchesSearch && matchesPackage && matchesStatus;
+    
+    let matchesMonth = true;
+    if (monthFilter !== "ALL") {
+      const dateStr = site.websiteStartDate || site.startDate;
+      if (dateStr) {
+        const date = new Date(dateStr);
+        const monthYear = `${date.getMonth() + 1}/${date.getFullYear()}`;
+        matchesMonth = monthYear === monthFilter;
+      } else {
+        matchesMonth = false;
+      }
+    }
+    
+    return matchesSearch && matchesPackage && matchesStatus && matchesMonth;
   });
 
-  const toggleStatus = async (e: React.MouseEvent, id: string, currentStatus?: string) => {
+  // Status cycle: pending -> processing -> completed -> pending
+  const cycleStatus = async (e: React.MouseEvent, id: string, currentStatus?: string, site?: StoreEntry) => {
     e.stopPropagation();
     if (!firestore || !id) return;
-    const newStatus = currentStatus === "completed" ? "pending" : "completed";
+    const nextStatus = 
+      currentStatus === "completed" ? "pending" :
+      currentStatus === "processing" ? "completed" : "processing";
+    const statusLabel = nextStatus === "completed" ? "HOÀN THÀNH" : nextStatus === "processing" ? "ĐANG XỬ LÝ" : "ĐANG CHỜ";
     try {
       const docRef = doc(firestore, "stores", id);
-      await updateDoc(docRef, { websiteStatus: newStatus });
+      await updateDoc(docRef, { websiteStatus: nextStatus });
       toast({
         title: "CẬP NHẬT TRẠNG THÁI",
-        description: `Website đã chuyển sang trạng thái: ${newStatus === "completed" ? "HOÀN THÀNH" : "ĐANG CHỜ"}`,
+        description: `Website đã chuyển sang: ${statusLabel}`,
       });
       if (selectedWebsite?.id === id) {
-        setSelectedWebsite({ ...selectedWebsite, websiteStatus: newStatus });
+        setSelectedWebsite({ ...selectedWebsite, websiteStatus: nextStatus as any });
+      }
+
+      // If transitioning to completed, offer email notification
+      if (nextStatus === "completed" && site) {
+        const email = getSalesEmail(site.salesPerson);
+        setNotifyDialog({ open: true, site, salesEmail: email });
       }
     } catch (e: any) {
       toast({
@@ -67,9 +160,76 @@ export function WebsiteTable({ websites, isAdmin }: WebsiteTableProps) {
     }
   };
 
+  const sendEmailNotification = async (site: StoreEntry, email: string) => {
+    setIsSendingEmail(false); // Reset just in case
+    setIsSendingEmail(true);
+    try {
+      const res = await fetch("/api/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: email,
+          storeName: site.storeName,
+          customerName: site.customerName,
+          customerPhone: site.customerPhone,
+          googleWebsiteLink: site.googleWebsiteLink,
+          salesPerson: site.salesPerson,
+          package: site.package,
+        }),
+      });
+      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Gửi mail thất bại");
+      
+      toast({ 
+        title: "ĐÃ GỬI EMAIL", 
+        description: `Thông báo đã gửi thành công đến ${email}` 
+      });
+    } catch (err: any) {
+      toast({ 
+        variant: "destructive", 
+        title: "GỬI THẤT BẠI", 
+        description: err.message 
+      });
+    } finally {
+      setIsSendingEmail(false);
+      setNotifyDialog({ open: false, site: null, salesEmail: "" });
+    }
+  };
+
   const handleRowClick = (site: StoreEntry) => {
     setSelectedWebsite(site);
     setNote(site.websiteNote || "");
+    setEditWebsiteStartDate(site.websiteStartDate || site.startDate || "");
+    setEditWebsiteEndDate(site.websiteEndDate || site.endDate || "");
+    setEditGoogleWebsiteLink(site.googleWebsiteLink || "");
+  };
+
+  const updateDetails = async () => {
+    if (!firestore || !selectedWebsite?.id) return;
+    setIsUpdatingDetails(true);
+    try {
+      const docRef = doc(firestore, "stores", selectedWebsite.id);
+      const updates = {
+        websiteStartDate: editWebsiteStartDate,
+        websiteEndDate: editWebsiteEndDate,
+        googleWebsiteLink: editGoogleWebsiteLink
+      };
+      await updateDoc(docRef, updates);
+      toast({
+        title: "CẬP NHẬT THÀNH CÔNG",
+        description: "Thông tin chi tiết website đã được lưu lại.",
+      });
+      setSelectedWebsite({ ...selectedWebsite, ...updates });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "LỖI",
+        description: "Không thể cập nhật thông tin.",
+      });
+    } finally {
+      setIsUpdatingDetails(false);
+    }
   };
 
   const saveNote = async () => {
@@ -121,6 +281,20 @@ export function WebsiteTable({ websites, isAdmin }: WebsiteTableProps) {
         </div>
 
         <div className="w-full md:w-48">
+          <Select value={monthFilter} onValueChange={setMonthFilter}>
+            <SelectTrigger className="bg-white/5 border-white/10 text-white font-bold h-14 rounded-2xl focus:ring-indigo-400/50">
+              <SelectValue placeholder="Chọn tháng" />
+            </SelectTrigger>
+            <SelectContent className="select-content-solid border-white/10 text-white">
+              <SelectItem value="ALL" className="font-bold">TẤT CẢ THÁNG</SelectItem>
+              {uniqueMonths.map(m => (
+                <SelectItem key={m} value={m!} className="font-bold uppercase">THÁNG {m}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="w-full md:w-48">
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="bg-white/5 border-white/10 text-white font-bold h-14 rounded-2xl focus:ring-indigo-400/50">
               <SelectValue placeholder="Trạng thái" />
@@ -128,6 +302,7 @@ export function WebsiteTable({ websites, isAdmin }: WebsiteTableProps) {
             <SelectContent className="select-content-solid border-white/10 text-white">
               <SelectItem value="ALL" className="font-bold">TẤT CẢ TRẠNG THÁI</SelectItem>
               <SelectItem value="pending" className="font-bold">ĐANG CHỜ</SelectItem>
+              <SelectItem value="processing" className="font-bold">ĐANG XỬ LÝ</SelectItem>
               <SelectItem value="completed" className="font-bold">HOÀN THÀNH</SelectItem>
             </SelectContent>
           </Select>
@@ -142,12 +317,14 @@ export function WebsiteTable({ websites, isAdmin }: WebsiteTableProps) {
               <th className="px-8 py-6 text-xs font-black uppercase text-slate-400 tracking-widest">Liên Hệ</th>
               <th className="px-8 py-6 text-xs font-black uppercase text-slate-400 tracking-widest text-center">Gói</th>
               <th className="px-8 py-6 text-xs font-black uppercase text-slate-400 tracking-widest">Nhân Sự</th>
-              <th className="px-8 py-6 text-xs font-black uppercase text-slate-400 tracking-widest text-right">Trạng Thái</th>
+              <th className="px-8 py-6 text-xs font-black uppercase text-slate-400 tracking-widest text-right">Thao Tác</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/5">
             {filteredWebsites.map((site) => {
               const isCompleted = site.websiteStatus === "completed";
+              const isProcessing = site.websiteStatus === "processing";
+              const isPending = !site.websiteStatus || site.websiteStatus === "pending";
               const assignedList = Array.isArray(site.assignedTo) 
                 ? site.assignedTo 
                 : (site.assignedTo ? [site.assignedTo as unknown as string] : []);
@@ -198,11 +375,11 @@ export function WebsiteTable({ websites, isAdmin }: WebsiteTableProps) {
                   <td className="px-8 py-8">
                     <div className="space-y-3">
                       {assignedList.length > 0 && (
-                        <div className="flex -space-x-2 items-center">
-                          {assignedList.slice(0, 3).map((name, idx) => (
-                            <div key={idx} className="w-7 h-7 rounded-lg bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-[9px] font-black text-indigo-300 uppercase shadow-lg" title={name}>
-                              {name ? name[0] : "?"}
-                            </div>
+                        <div className="flex flex-wrap gap-2">
+                          {assignedList.map((name, idx) => (
+                            <Badge key={idx} variant="outline" className="text-[9px] font-black border-indigo-500/20 bg-indigo-500/5 text-indigo-300 uppercase px-2 py-0.5 rounded-md whitespace-nowrap">
+                              {name}
+                            </Badge>
                           ))}
                         </div>
                       )}
@@ -214,22 +391,42 @@ export function WebsiteTable({ websites, isAdmin }: WebsiteTableProps) {
                     </div>
                   </td>
                   <td className="px-8 py-8 text-right">
-                    <Button 
-                      variant="ghost" 
-                      onClick={(e) => toggleStatus(e, site.id!, site.websiteStatus)}
-                      className={cn(
-                        "h-10 px-4 rounded-xl font-black text-[10px] uppercase tracking-widest border transition-all z-10 relative",
-                        isCompleted 
-                          ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20" 
-                          : "bg-white/5 text-slate-400 border-white/10 hover:bg-white/10 hover:text-white"
-                      )}
-                    >
-                      {isCompleted ? (
-                        <><CheckCircle2 className="w-4 h-4 mr-2" /> Hoàn Thành</>
-                      ) : (
-                        <><Circle className="w-4 h-4 mr-2" /> Đang Chờ</>
-                      )}
-                    </Button>
+                    <div className="flex items-center justify-end gap-3" onClick={(e) => e.stopPropagation()}>
+                      <Button 
+                        variant="ghost" 
+                        size="icon"
+                        onClick={(e) => cycleStatus(e, site.id!, site.websiteStatus, site)}
+                        className={cn(
+                          "h-10 w-10 rounded-xl transition-all",
+                          isCompleted  
+                            ? "text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20" 
+                            : isProcessing
+                            ? "text-blue-400 bg-blue-500/10 hover:bg-blue-500/20"
+                            : "text-slate-400 bg-white/5 hover:bg-white/10 hover:text-white"
+                        )}
+                        title={
+                          isCompleted ? "Quay lại: Đang Chờ" 
+                          : isProcessing ? "Chuyển sang: Hoàn Thành" 
+                          : "Chuyển sang: Đang Xử Lý"
+                        }
+                      >
+                        {isCompleted ? (
+                          <CheckCircle2 className="w-4 h-4" />
+                        ) : isProcessing ? (
+                          <Clock className="w-4 h-4" />
+                        ) : (
+                          <Circle className="w-4 h-4" />
+                        )}
+                      </Button>
+                      <Button 
+                        variant="ghost" 
+                        size="icon"
+                        asChild
+                        className="h-10 w-10 text-slate-400 hover:text-white hover:bg-white/10 rounded-xl"
+                      >
+                        <a href={`/stores/${site.id}/edit`}><Edit className="w-4 h-4" /></a>
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               );
@@ -254,18 +451,49 @@ export function WebsiteTable({ websites, isAdmin }: WebsiteTableProps) {
               </div>
 
               <div className="p-8 flex-1 space-y-8">
-                <div className="grid grid-cols-2 gap-6">
+                <div className="grid grid-cols-2 gap-6 bg-white/5 p-6 rounded-2xl border border-white/10">
                   <div className="space-y-2">
-                    <div className="text-[10px] font-black uppercase text-slate-500 tracking-widest flex items-center gap-2">
-                      <Calendar className="w-3 h-3 text-indigo-400" /> Bắt đầu
-                    </div>
-                    <div className="font-bold text-sm">{selectedWebsite.websiteStartDate || selectedWebsite.startDate}</div>
+                    <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest flex items-center gap-2">
+                      <Calendar className="w-3 h-3 text-indigo-400" /> Ngày Bắt Đầu
+                    </label>
+                    <Input 
+                      type="date" 
+                      value={editWebsiteStartDate} 
+                      onChange={(e) => setEditWebsiteStartDate(e.target.value)}
+                      className="bg-slate-900 border-white/10 text-white h-10 rounded-xl text-xs font-bold"
+                    />
                   </div>
                   <div className="space-y-2">
-                    <div className="text-[10px] font-black uppercase text-slate-500 tracking-widest flex items-center gap-2">
-                      <Calendar className="w-3 h-3 text-red-400" /> Kết thúc
+                    <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest flex items-center gap-2">
+                      <Calendar className="w-3 h-3 text-red-400" /> Ngày Kết Thúc
+                    </label>
+                    <Input 
+                      type="date" 
+                      value={editWebsiteEndDate} 
+                      onChange={(e) => setEditWebsiteEndDate(e.target.value)}
+                      className="bg-slate-900 border-white/10 text-white h-10 rounded-xl text-xs font-bold"
+                    />
+                  </div>
+                  <div className="col-span-2 space-y-2 pt-2">
+                    <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest flex items-center gap-2">
+                      <Globe className="w-3 h-3 text-indigo-400" /> Đường dẫn Website
+                    </label>
+                    <div className="flex gap-2">
+                      <Input 
+                        placeholder="example.com" 
+                        value={editGoogleWebsiteLink} 
+                        onChange={(e) => setEditGoogleWebsiteLink(e.target.value)}
+                        className="bg-slate-900 border-white/10 text-white h-10 rounded-xl text-xs font-bold flex-1"
+                      />
+                      <Button 
+                        size="sm" 
+                        onClick={updateDetails} 
+                        disabled={isUpdatingDetails}
+                        className="bg-indigo-500 hover:bg-indigo-600 text-white font-black text-[10px] px-4 rounded-xl"
+                      >
+                        {isUpdatingDetails ? <Loader2 className="w-3 h-3 animate-spin" /> : "CẬP NHẬT"}
+                      </Button>
                     </div>
-                    <div className="font-bold text-sm">{selectedWebsite.websiteEndDate || selectedWebsite.endDate || "Chưa xác định"}</div>
                   </div>
                 </div>
 
@@ -273,46 +501,38 @@ export function WebsiteTable({ websites, isAdmin }: WebsiteTableProps) {
                   <div className="text-[10px] font-black uppercase text-slate-500 tracking-widest border-b border-white/10 pb-2">
                     Liên Kết Mạng Xã Hội
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/10">
-                      <Facebook className="w-4 h-4 text-blue-500" />
-                      <div className="overflow-hidden">
-                        <div className="text-[10px] font-black uppercase text-slate-500">Facebook</div>
-                        {selectedWebsite.facebookLink ? (
-                          <a href={selectedWebsite.facebookLink} target="_blank" rel="noreferrer" className="text-xs font-bold text-white hover:text-blue-400 truncate block">
-                            {selectedWebsite.facebookLink}
-                          </a>
-                        ) : (
-                          <span className="text-xs font-bold text-slate-600">Chưa có</span>
+                  <div className="grid grid-cols-1 gap-3">
+                    {[
+                      { key: "facebook", label: "Facebook", icon: <Facebook className="w-4 h-4 text-blue-500" />, value: selectedWebsite.facebookLink, color: "blue" },
+                      { key: "instagram", label: "Instagram", icon: <Instagram className="w-4 h-4 text-pink-500" />, value: selectedWebsite.instagramLink, color: "pink" },
+                      { key: "website", label: "Website", icon: <Globe className="w-4 h-4 text-indigo-400" />, value: selectedWebsite.googleWebsiteLink, color: "indigo" },
+                      { key: "gbusiness", label: "Google Business", icon: <Store className="w-4 h-4 text-emerald-500" />, value: selectedWebsite.googleBusinessLink, color: "emerald" },
+                    ].map(({ key, label, icon, value }) => (
+                      <div key={key} className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/10">
+                        <div className="shrink-0">{icon}</div>
+                        <div className="flex-1 overflow-hidden min-w-0">
+                          <div className="text-[10px] font-black uppercase text-slate-500">{label}</div>
+                          {value ? (
+                            <a href={value.startsWith('http') ? value : `https://${value}`} target="_blank" rel="noreferrer" className="text-xs font-bold text-white hover:text-primary truncate block transition-colors">
+                              {value}
+                            </a>
+                          ) : (
+                            <span className="text-xs font-bold text-slate-600">Chưa có</span>
+                          )}
+                        </div>
+                        {value && (
+                          <button
+                            onClick={() => copyToClipboard(value, key)}
+                            className="shrink-0 p-1.5 rounded-lg hover:bg-white/10 transition-all text-slate-400 hover:text-white"
+                            title="Sao chép"
+                          >
+                            {copiedKey === key 
+                              ? <Check className="w-3.5 h-3.5 text-emerald-400" /> 
+                              : <Copy className="w-3.5 h-3.5" />}
+                          </button>
                         )}
                       </div>
-                    </div>
-                    <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/10">
-                      <Instagram className="w-4 h-4 text-pink-500" />
-                      <div className="overflow-hidden">
-                        <div className="text-[10px] font-black uppercase text-slate-500">Instagram</div>
-                        {selectedWebsite.instagramLink ? (
-                          <a href={selectedWebsite.instagramLink} target="_blank" rel="noreferrer" className="text-xs font-bold text-white hover:text-pink-400 truncate block">
-                            {selectedWebsite.instagramLink}
-                          </a>
-                        ) : (
-                          <span className="text-xs font-bold text-slate-600">Chưa có</span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/10 sm:col-span-2">
-                      <Store className="w-4 h-4 text-emerald-500" />
-                      <div className="overflow-hidden">
-                        <div className="text-[10px] font-black uppercase text-slate-500">Google Business</div>
-                        {selectedWebsite.googleBusinessLink ? (
-                          <a href={selectedWebsite.googleBusinessLink} target="_blank" rel="noreferrer" className="text-xs font-bold text-white hover:text-emerald-400 truncate block">
-                            {selectedWebsite.googleBusinessLink}
-                          </a>
-                        ) : (
-                          <span className="text-xs font-bold text-slate-600">Chưa có</span>
-                        )}
-                      </div>
-                    </div>
+                    ))}
                   </div>
                 </div>
 
@@ -325,10 +545,49 @@ export function WebsiteTable({ websites, isAdmin }: WebsiteTableProps) {
                   </div>
                   <div className="space-y-1">
                     <div className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Trạng Thái</div>
-                    <Badge variant="outline" className={cn("text-[10px] font-black px-3 py-1 border-white/10 uppercase tracking-widest", selectedWebsite.websiteStatus === "completed" ? "text-emerald-400 bg-emerald-500/10" : "text-amber-400 bg-amber-500/10")}>
-                      {selectedWebsite.websiteStatus === "completed" ? "HOÀN THÀNH" : "ĐANG CHỜ"}
+                     <Badge variant="outline" className={cn(
+                      "text-[10px] font-black px-3 py-1 border-white/10 uppercase tracking-widest",
+                      selectedWebsite.websiteStatus === "completed" 
+                        ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" 
+                        : selectedWebsite.websiteStatus === "processing"
+                        ? "text-blue-400 bg-blue-500/10 border-blue-500/20"
+                        : "text-amber-400 bg-amber-500/10 border-amber-500/20"
+                    )}>
+                      {selectedWebsite.websiteStatus === "completed" 
+                        ? "✓ HOÀN THÀNH" 
+                        : selectedWebsite.websiteStatus === "processing"
+                        ? "⟳ ĐANG XỬ LÝ"
+                        : "○ ĐANG CHỜ"}
                     </Badge>
                   </div>
+
+                  {/* Duration summary - uses SERVICE package dates */}
+                  {(() => {
+                    const startD = selectedWebsite.startDate;
+                    const endD = selectedWebsite.endDate;
+                    const total = getMonthDiff(startD || "", endD || "");
+                    const remaining = getRemainingMonths(endD || "");
+                    if (total === null) return null;
+                    const isExpired = (remaining ?? 0) <= 0;
+                    return (
+                      <div className="col-span-2 grid grid-cols-3 gap-3 pt-2 border-t border-white/10">
+                        <div className="space-y-1 text-center p-3 rounded-xl bg-white/5">
+                          <div className="text-[9px] font-black uppercase text-slate-500 tracking-widest">Tổng Thời Hạn</div>
+                          <div className="text-xl font-black text-white">{total}<span className="text-xs text-slate-400 ml-1">tháng</span></div>
+                        </div>
+                        <div className="space-y-1 text-center p-3 rounded-xl bg-white/5">
+                          <div className="text-[9px] font-black uppercase text-slate-500 tracking-widest">Còn Lại</div>
+                          <div className={cn("text-xl font-black", isExpired ? "text-red-400" : (remaining ?? 0) <= 2 ? "text-amber-400" : "text-emerald-400")}>
+                            {isExpired ? "HẺt" : remaining}<span className="text-xs text-slate-400 ml-1">{!isExpired && "tháng"}</span>
+                          </div>
+                        </div>
+                        <div className="space-y-1 text-center p-3 rounded-xl bg-white/5">
+                          <div className="text-[9px] font-black uppercase text-slate-500 tracking-widest">Gói</div>
+                          <div className="text-base font-black text-indigo-400 uppercase">{selectedWebsite.package || "PRO"}</div>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div className="grid grid-cols-2 gap-6">
@@ -380,6 +639,45 @@ export function WebsiteTable({ websites, isAdmin }: WebsiteTableProps) {
           )}
         </SheetContent>
       </Sheet>
+
+      <AlertDialog open={notifyDialog.open} onOpenChange={(open) => !open && setNotifyDialog({ ...notifyDialog, open: false })}>
+        <AlertDialogContent className="bg-slate-900 border border-white/10 text-white rounded-[2rem]">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-xl font-black uppercase flex items-center gap-3">
+              <Mail className="text-indigo-400" /> THÔNG BÁO HOÀN THÀNH?
+            </AlertDialogTitle>
+            <div className="text-slate-400 font-bold text-sm">
+              Website của tiệm <span className="text-white">"{notifyDialog.site?.storeName}"</span> đã hoàn thành. 
+              Bạn có muốn gửi email thông báo tự động cho Sales <span className="text-white">{notifyDialog.site?.salesPerson || "phụ trách"}</span> không?
+              
+              {notifyDialog.salesEmail ? (
+                <div className="mt-4 p-3 bg-white/5 rounded-xl border border-white/10 flex items-center gap-3">
+                  <Mail className="w-4 h-4 text-indigo-400" />
+                  <div className="text-xs text-slate-300">Gửi đến: <span className="text-white font-bold">{notifyDialog.salesEmail}</span></div>
+                </div>
+              ) : (
+                <div className="mt-4 p-3 bg-red-500/10 rounded-xl border border-red-500/20 flex items-center gap-3">
+                  <Mail className="w-4 h-4 text-red-400" />
+                  <div className="text-xs text-red-400">Sale này chưa được cập nhật Email trong hệ thống.</div>
+                </div>
+              )}
+            </div>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-3">
+            <AlertDialogCancel className="bg-transparent border-white/10 text-slate-400 hover:text-white hover:bg-white/5 rounded-xl uppercase font-black text-[10px] tracking-widest h-11 px-6">
+              BỎ QUA
+            </AlertDialogCancel>
+            <AlertDialogAction 
+              disabled={!notifyDialog.salesEmail || isSendingEmail}
+              onClick={() => notifyDialog.site && sendEmailNotification(notifyDialog.site, notifyDialog.salesEmail)}
+              className="futuristic-gradient border-none text-white shadow-lg shadow-indigo-500/20 rounded-xl uppercase font-black text-[10px] tracking-widest h-11 px-8"
+            >
+              {isSendingEmail ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Send className="w-4 h-4 mr-2" />}
+              GỬI THÔNG BÁO NGAY
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -35,15 +35,35 @@ interface StoreTableProps {
 export function StoreTable({ stores, isAdmin }: StoreTableProps) {
   const [search, setSearch] = useState("");
   const [packageFilter, setPackageFilter] = useState("ALL");
-  const [sortBy, setSortBy] = useState("START_DATE_DESC");
+  const [monthFilter, setMonthFilter] = useState("ALL");
+  const [sortBy, setSortBy] = useState("ID_DESC");
   const { profile } = useFirebase();
   const firestore = useFirestore();
   const router = useRouter();
 
-  const storesWithIds = stores.map((s, i) => ({
-    ...s,
-    displayId: `${stores.length - i}-${s.package || "PRO"}-${(s.serviceType || "both").toUpperCase()}`
-  }));
+  // Extract unique months from stores for filtering
+  const uniqueMonths = Array.from(new Set(stores.map(s => {
+    if (!s.startDate) return null;
+    const date = new Date(s.startDate);
+    return `${date.getMonth() + 1}/${date.getFullYear()}`;
+  }).filter(Boolean))).sort((a, b) => {
+    const [m1, y1] = a!.split('/').map(Number);
+    const [m2, y2] = b!.split('/').map(Number);
+    return y2 !== y1 ? y2 - y1 : m2 - m1;
+  });
+
+  // stores comes from Firestore ordered by createdAt DESC
+  // so stores[0] = newest = should get highest ID (stores.length)
+  // and stores[stores.length-1] = oldest = gets ID 1
+  // We ALWAYS compute from position to avoid relying on corrupt stored numericId values
+  const storesWithIds = stores.map((s, i) => {
+    const idNum = stores.length - i; // 1-based, oldest=1, newest=stores.length
+    return {
+      ...s,
+      _seqId: idNum,
+      displayId: `${idNum}-${s.package || "PRO"}-${(s.serviceType || "both").toUpperCase()}`
+    };
+  });
 
   const filteredStores = storesWithIds
     .filter(store => {
@@ -51,9 +71,25 @@ export function StoreTable({ stores, isAdmin }: StoreTableProps) {
                             store.customerName?.toLowerCase().includes(search.toLowerCase()) ||
                             (store.customerPhone && store.customerPhone.includes(search));
       const matchesPackage = packageFilter === "ALL" || store.package === packageFilter;
-      return matchesSearch && matchesPackage;
+      
+      let matchesMonth = true;
+      if (monthFilter !== "ALL" && store.startDate) {
+        const date = new Date(store.startDate);
+        const monthYear = `${date.getMonth() + 1}/${date.getFullYear()}`;
+        matchesMonth = monthYear === monthFilter;
+      }
+
+      return matchesSearch && matchesPackage && matchesMonth;
     })
     .sort((a, b) => {
+      if (sortBy === "ID_DESC") {
+        // highest ID first = newest first (at top)
+        return (b._seqId || 0) - (a._seqId || 0);
+      }
+      if (sortBy === "ID_ASC") {
+        // lowest ID first = oldest first (at top)
+        return (a._seqId || 0) - (b._seqId || 0);
+      }
       if (sortBy === "START_DATE_DESC") {
         return (b.startDate || "").localeCompare(a.startDate || "");
       }
@@ -62,6 +98,7 @@ export function StoreTable({ stores, isAdmin }: StoreTableProps) {
       }
       return 0;
     });
+
 
   const isActualAdmin = profile?.role === "Admin";
 
@@ -88,6 +125,20 @@ export function StoreTable({ stores, isAdmin }: StoreTableProps) {
           />
         </div>
         
+        <div className="w-full md:w-48">
+          <Select value={monthFilter} onValueChange={setMonthFilter}>
+            <SelectTrigger className="bg-white/5 border-white/10 text-white font-bold h-14 rounded-2xl focus:ring-primary/50">
+              <SelectValue placeholder="Chọn tháng" />
+            </SelectTrigger>
+            <SelectContent className="select-content-solid border-white/10 text-white">
+              <SelectItem value="ALL" className="font-bold">TẤT CẢ THÁNG</SelectItem>
+              {uniqueMonths.map(m => (
+                <SelectItem key={m} value={m!} className="font-bold uppercase">THÁNG {m}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
         <div className="w-full md:w-56">
           <Select value={sortBy} onValueChange={setSortBy}>
             <SelectTrigger className="bg-white/5 border-white/10 text-white font-bold h-14 rounded-2xl focus:ring-primary/50">
@@ -97,7 +148,8 @@ export function StoreTable({ stores, isAdmin }: StoreTableProps) {
               </div>
             </SelectTrigger>
             <SelectContent className="select-content-solid border-white/10 text-white">
-              <SelectItem value="START_DATE_DESC" className="font-bold">MỚI NHẤT (BẮT ĐẦU)</SelectItem>
+              <SelectItem value="ID_DESC" className="font-bold">MỚI NHẤT LÊN ĐẦU (↓)</SelectItem>
+              <SelectItem value="ID_ASC" className="font-bold">CŨ NHẤT LÊN ĐẦU (↑)</SelectItem>
               <SelectItem value="EXPIRING_SOON" className="font-bold">SẮP HẾT GÓI</SelectItem>
             </SelectContent>
           </Select>

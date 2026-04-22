@@ -160,7 +160,7 @@ export default function StaffPage() {
               <table className="w-full text-left">
                 <thead>
                   <tr className="border-b border-white/5 bg-white/5">
-                    <th className="p-8 text-xs font-black uppercase text-slate-500 tracking-widest">Họ tên</th>
+                    <th className="p-8 text-xs font-black uppercase text-slate-500 tracking-widest">Họ tên / Email</th>
                     <th className="p-8 text-xs font-black uppercase text-slate-500 tracking-widest">Vai Trò / Vị Trí</th>
                     <th className="p-8 text-xs font-black uppercase text-slate-500 tracking-widest text-right">Thao tác</th>
                   </tr>
@@ -175,6 +175,7 @@ export default function StaffPage() {
                       <tr key={s.id} className="hover:bg-white/5 transition-all group">
                         <td className="p-8">
                           <div className="font-black text-white uppercase text-base tracking-tight">{s.name}</div>
+                          {s.email && <div className="text-[10px] font-bold text-slate-500 lowercase mt-1 tracking-wider">{s.email}</div>}
                         </td>
                         <td className="p-8">
                           <div className="flex flex-wrap gap-2">

@@ -3,6 +3,7 @@
 import './globals.css';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Toaster } from '@/components/ui/toaster';
+import { LoadingBar } from '@/components/layout/LoadingBar';
 import { FirebaseClientProvider } from '@/firebase/client-provider';
 import { useFirebase } from '@/firebase';
 import { usePathname, useRouter } from 'next/navigation';
@@ -66,6 +67,7 @@ export default function RootLayout({
       </head>
       <body className="antialiased">
         <FirebaseClientProvider>
+          <LoadingBar />
           <FirebaseErrorListener />
           <AuthGuard>
             {isLoginPage ? (
