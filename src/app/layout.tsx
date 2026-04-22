@@ -7,7 +7,7 @@ import { LoadingBar } from '@/components/layout/LoadingBar';
 import { FirebaseClientProvider } from '@/firebase/client-provider';
 import { useFirebase } from '@/firebase';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { Loader2, Bell, Search, User as UserIcon, Zap } from 'lucide-react';
 import { FirebaseErrorListener } from '@/components/FirebaseErrorListener';
 
@@ -67,7 +67,9 @@ export default function RootLayout({
       </head>
       <body className="antialiased">
         <FirebaseClientProvider>
-          <LoadingBar />
+          <Suspense fallback={null}>
+            <LoadingBar />
+          </Suspense>
           <FirebaseErrorListener />
           <AuthGuard>
             {isLoginPage ? (
