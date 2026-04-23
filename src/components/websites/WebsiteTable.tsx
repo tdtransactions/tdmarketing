@@ -29,7 +29,16 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { InternalStaff } from "@/types/staff";
+
+
+
+// Email validation helper
+const isValidEmail = (email: string) => {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+};
 
 interface WebsiteTableProps {
   websites: StoreEntry[];
@@ -44,6 +53,7 @@ export function WebsiteTable({ websites, isAdmin }: WebsiteTableProps) {
   const [selectedWebsite, setSelectedWebsite] = useState<StoreEntry | null>(null);
   const [note, setNote] = useState("");
   const [isSavingNote, setIsSavingNote] = useState(false);
+  const [isSavingAssignedTo, setIsSavingAssignedTo] = useState(false);
   
   // States for direct editing in sheet
   const [editWebsiteStartDate, setEditWebsiteStartDate] = useState("");
@@ -53,8 +63,15 @@ export function WebsiteTable({ websites, isAdmin }: WebsiteTableProps) {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   
   // Email notify dialog
-  const [notifyDialog, setNotifyDialog] = useState<{ open: boolean; site: StoreEntry | null; salesEmail: string }>({ open: false, site: null, salesEmail: "" });
-  const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [notifyDialog, setNotifyDialog] = useState({ 
+    open: false, 
+    site: null as StoreEntry | null, 
+    salesEmail: "", 
+    adminEmail: process.env.NEXT_PUBLIC_ADMIN_EMAIL || "admin@mytdtransactions.com",
+    isSendingSales: false,
+    isSendingAdmin: false,
+    type: "completed" as "completed" | "processing"
+  });
 
   const firestore = useFirestore();
 
@@ -146,10 +163,16 @@ export function WebsiteTable({ websites, isAdmin }: WebsiteTableProps) {
         setSelectedWebsite({ ...selectedWebsite, websiteStatus: nextStatus as any });
       }
 
-      // If transitioning to completed, offer email notification
-      if (nextStatus === "completed" && site) {
+      // If transitioning to completed or processing, offer email notification
+      if ((nextStatus === "completed" || nextStatus === "processing") && site) {
         const email = getSalesEmail(site.salesPerson);
-        setNotifyDialog({ open: true, site, salesEmail: email });
+        setNotifyDialog(prev => ({ 
+          ...prev, 
+          open: true, 
+          site, 
+          salesEmail: email,
+          type: nextStatus as "completed" | "processing"
+        }));
       }
     } catch (e: any) {
       toast({
@@ -160,21 +183,39 @@ export function WebsiteTable({ websites, isAdmin }: WebsiteTableProps) {
     }
   };
 
-  const sendEmailNotification = async (site: StoreEntry, email: string) => {
-    setIsSendingEmail(false); // Reset just in case
-    setIsSendingEmail(true);
+  const sendEmailNotification = async (type: 'sales' | 'admin') => {
+    if (!notifyDialog.site) return;
+    
+    const email = type === 'sales' ? notifyDialog.salesEmail : notifyDialog.adminEmail;
+    
+    if (!email || !isValidEmail(email)) {
+      toast({ 
+        variant: "destructive",
+        title: "EMAIL KHÔNG HỢP LỆ", 
+        description: "Vui lòng nhập email hợp lệ." 
+      });
+      return;
+    }
+
+    setNotifyDialog(prev => ({ 
+      ...prev, 
+      [type === 'sales' ? 'isSendingSales' : 'isSendingAdmin']: true 
+    }));
+
     try {
       const res = await fetch("/api/notify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          to: email,
-          storeName: site.storeName,
-          customerName: site.customerName,
-          customerPhone: site.customerPhone,
-          googleWebsiteLink: site.googleWebsiteLink,
-          salesPerson: site.salesPerson,
-          package: site.package,
+          to: [email],
+          storeName: notifyDialog.site.storeName,
+          customerName: notifyDialog.site.customerName,
+          customerPhone: notifyDialog.site.customerPhone,
+          googleWebsiteLink: notifyDialog.site.googleWebsiteLink,
+          salesPerson: notifyDialog.site.salesPerson,
+          package: notifyDialog.site.package,
+          type: notifyDialog.type,
+          assignedTo: notifyDialog.site.websiteAssignedTo,
         }),
       });
       
@@ -192,8 +233,10 @@ export function WebsiteTable({ websites, isAdmin }: WebsiteTableProps) {
         description: err.message 
       });
     } finally {
-      setIsSendingEmail(false);
-      setNotifyDialog({ open: false, site: null, salesEmail: "" });
+      setNotifyDialog(prev => ({ 
+        ...prev, 
+        [type === 'sales' ? 'isSendingSales' : 'isSendingAdmin']: false 
+      }));
     }
   };
 
@@ -203,6 +246,29 @@ export function WebsiteTable({ websites, isAdmin }: WebsiteTableProps) {
     setEditWebsiteStartDate(site.websiteStartDate || site.startDate || "");
     setEditWebsiteEndDate(site.websiteEndDate || site.endDate || "");
     setEditGoogleWebsiteLink(site.googleWebsiteLink || "");
+  };
+
+  const toggleWorker = async (worker: string) => {
+    if (!selectedWebsite || !firestore) return;
+    
+    const currentAssigned = Array.isArray(selectedWebsite.websiteAssignedTo) ? selectedWebsite.websiteAssignedTo : [];
+    const newAssigned = currentAssigned.includes(worker)
+      ? currentAssigned.filter(a => a !== worker)
+      : [...currentAssigned, worker];
+    
+    setIsSavingAssignedTo(true);
+    try {
+      const docRef = doc(firestore, "stores", selectedWebsite.id);
+      await updateDoc(docRef, { websiteAssignedTo: newAssigned });
+      
+      setSelectedWebsite({ ...selectedWebsite, websiteAssignedTo: newAssigned });
+
+      toast({ title: "CẬP NHẬT PHỤ TRÁCH", description: `Đã cập nhật nhân sự website: ${newAssigned.join(", ") || "Chưa phân công"}` });
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "LỖI CẬP NHẬT", description: e.message });
+    } finally {
+      setIsSavingAssignedTo(false);
+    }
   };
 
   const updateDetails = async () => {
@@ -374,10 +440,19 @@ export function WebsiteTable({ websites, isAdmin }: WebsiteTableProps) {
                   </td>
                   <td className="px-8 py-8">
                     <div className="space-y-3">
+                      {(Array.isArray(site.websiteAssignedTo) ? site.websiteAssignedTo : []).length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {(site.websiteAssignedTo || []).map((name, idx) => (
+                            <Badge key={idx} variant="default" className="text-[9px] font-black bg-emerald-500 hover:bg-emerald-600 text-white border-none uppercase px-2 py-0.5 rounded-md whitespace-nowrap shadow-sm">
+                              {name}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
                       {assignedList.length > 0 && (
                         <div className="flex flex-wrap gap-2">
                           {assignedList.map((name, idx) => (
-                            <Badge key={idx} variant="outline" className="text-[9px] font-black border-indigo-500/20 bg-indigo-500/5 text-indigo-300 uppercase px-2 py-0.5 rounded-md whitespace-nowrap">
+                            <Badge key={idx} variant="outline" className="text-[9px] font-black border-white/10 bg-white/5 text-slate-400 uppercase px-2 py-0.5 rounded-md whitespace-nowrap opacity-60">
                               {name}
                             </Badge>
                           ))}
@@ -591,21 +666,42 @@ export function WebsiteTable({ websites, isAdmin }: WebsiteTableProps) {
                 </div>
 
                 <div className="grid grid-cols-2 gap-6">
-                   <div className="space-y-2">
+                   <div className="space-y-3">
                     <div className="text-[10px] font-black uppercase text-slate-500 tracking-widest flex items-center gap-2">
-                      <UserCheck className="w-3 h-3 text-slate-400" /> Phụ Trách
+                       {isSavingAssignedTo ? <Loader2 className="w-3 h-3 animate-spin text-indigo-400" /> : <UserCheck className="w-3 h-3 text-slate-400" />} Phụ Trách
                     </div>
-                    <div className="font-bold text-sm uppercase text-slate-300">
-                      {Array.isArray(selectedWebsite.assignedTo) && selectedWebsite.assignedTo.length > 0 
-                        ? selectedWebsite.assignedTo.join(", ") 
-                        : "Chưa phân công"}
+                    <div className="flex flex-wrap gap-2">
+                      {(Array.isArray(selectedWebsite.assignedTo) ? selectedWebsite.assignedTo : []).length > 0 ? (
+                        (selectedWebsite.assignedTo || []).map(worker => {
+                          const isAssigned = Array.isArray(selectedWebsite.websiteAssignedTo) && selectedWebsite.websiteAssignedTo.includes(worker);
+                          return (
+                            <Button
+                              key={worker}
+                              size="sm"
+                              variant={isAssigned ? "default" : "outline"}
+                              onClick={() => toggleWorker(worker)}
+                              disabled={isSavingAssignedTo}
+                              className={cn(
+                                "text-[10px] font-black px-4 rounded-xl h-9 uppercase tracking-widest transition-all",
+                                isAssigned 
+                                  ? "bg-emerald-500 hover:bg-emerald-600 text-white border-none shadow-lg shadow-emerald-500/20" 
+                                  : "bg-transparent border-white/10 text-slate-400 hover:text-white hover:bg-white/5"
+                              )}
+                            >
+                              {worker}
+                            </Button>
+                          );
+                        })
+                      ) : (
+                        <div className="text-[10px] text-amber-400 font-bold uppercase italic">Vui lòng phân công nhân sự tại danh sách tiệm trước</div>
+                      )}
                     </div>
                   </div>
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     <div className="text-[10px] font-black uppercase text-slate-500 tracking-widest flex items-center gap-2">
                       <UserCheck className="w-3 h-3 text-slate-400" /> Sales
                     </div>
-                    <div className="font-bold text-sm uppercase text-slate-300">
+                    <div className="font-bold text-sm uppercase text-slate-300 bg-white/5 h-9 flex items-center px-4 rounded-xl border border-white/5">
                       {selectedWebsite.salesPerson || "Không có"}
                     </div>
                   </div>
@@ -641,40 +737,94 @@ export function WebsiteTable({ websites, isAdmin }: WebsiteTableProps) {
       </Sheet>
 
       <AlertDialog open={notifyDialog.open} onOpenChange={(open) => !open && setNotifyDialog({ ...notifyDialog, open: false })}>
-        <AlertDialogContent className="bg-slate-900 border border-white/10 text-white rounded-[2rem]">
+        <AlertDialogContent className="bg-slate-900 border border-white/10 text-white rounded-[2rem] max-w-lg">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-xl font-black uppercase flex items-center gap-3">
-              <Mail className="text-indigo-400" /> THÔNG BÁO HOÀN THÀNH?
+              <Mail className={cn(notifyDialog.type === "completed" ? "text-indigo-400" : "text-emerald-400")} /> 
+              {notifyDialog.type === "completed" ? "THÔNG BÁO HOÀN THÀNH?" : "THÔNG BÁO ĐÃ NHẬN TASK?"}
             </AlertDialogTitle>
             <div className="text-slate-400 font-bold text-sm">
-              Website của tiệm <span className="text-white">"{notifyDialog.site?.storeName}"</span> đã hoàn thành. 
-              Bạn có muốn gửi email thông báo tự động cho Sales <span className="text-white">{notifyDialog.site?.salesPerson || "phụ trách"}</span> không?
-              
-              {notifyDialog.salesEmail ? (
-                <div className="mt-4 p-3 bg-white/5 rounded-xl border border-white/10 flex items-center gap-3">
-                  <Mail className="w-4 h-4 text-indigo-400" />
-                  <div className="text-xs text-slate-300">Gửi đến: <span className="text-white font-bold">{notifyDialog.salesEmail}</span></div>
-                </div>
+              {notifyDialog.type === "completed" ? (
+                <>Website cho tiệm <span className="text-white">"{notifyDialog.site?.storeName}"</span> đã hoàn thành.</>
               ) : (
-                <div className="mt-4 p-3 bg-red-500/10 rounded-xl border border-red-500/20 flex items-center gap-3">
-                  <Mail className="w-4 h-4 text-red-400" />
-                  <div className="text-xs text-red-400">Sale này chưa được cập nhật Email trong hệ thống.</div>
-                </div>
+                <>Đã nhận task website cho tiệm <span className="text-white">"{notifyDialog.site?.storeName}"</span>.</>
               )}
+              <br />Chọn các email bạn muốn gửi thông báo.
             </div>
           </AlertDialogHeader>
-          <AlertDialogFooter className="gap-3">
-            <AlertDialogCancel className="bg-transparent border-white/10 text-slate-400 hover:text-white hover:bg-white/5 rounded-xl uppercase font-black text-[10px] tracking-widest h-11 px-6">
-              BỎ QUA
-            </AlertDialogCancel>
-            <AlertDialogAction 
-              disabled={!notifyDialog.salesEmail || isSendingEmail}
-              onClick={() => notifyDialog.site && sendEmailNotification(notifyDialog.site, notifyDialog.salesEmail)}
-              className="futuristic-gradient border-none text-white shadow-lg shadow-indigo-500/20 rounded-xl uppercase font-black text-[10px] tracking-widest h-11 px-8"
+
+          <div className="space-y-4 py-4">
+            {/* Sales Email Section */}
+            <div className="space-y-3 p-4 bg-white/5 rounded-2xl border border-white/10">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-black uppercase tracking-widest">
+                  Gửi cho Sales ({notifyDialog.site?.salesPerson || "phụ trách"})
+                </Label>
+              </div>
+              <div className="flex gap-2">
+                <div className="flex-1 space-y-1">
+                  <Input 
+                    value={notifyDialog.salesEmail}
+                    onChange={(e) => setNotifyDialog({ ...notifyDialog, salesEmail: e.target.value })}
+                    placeholder="name@example.com"
+                    className={cn(
+                      "bg-slate-950 border-white/10 text-white h-10 rounded-xl text-xs font-bold",
+                      notifyDialog.salesEmail && !isValidEmail(notifyDialog.salesEmail) && "border-red-500/50 focus-visible:ring-red-500/20"
+                    )}
+                  />
+                  {notifyDialog.salesEmail && !isValidEmail(notifyDialog.salesEmail) && (
+                    <p className="text-[10px] text-red-400 font-bold uppercase tracking-tight">Email không hợp lệ</p>
+                  )}
+                </div>
+                <Button
+                  size="sm"
+                  disabled={notifyDialog.isSendingSales || !notifyDialog.salesEmail || !isValidEmail(notifyDialog.salesEmail)}
+                  onClick={() => sendEmailNotification('sales')}
+                  className="bg-indigo-500 hover:bg-indigo-600 text-white font-black text-[10px] px-4 rounded-xl h-10 min-w-[70px]"
+                >
+                  {notifyDialog.isSendingSales ? <Loader2 className="w-3 h-3 animate-spin" /> : "GỬI"}
+                </Button>
+              </div>
+            </div>
+
+            {/* Admin Email Section */}
+            <div className="space-y-3 p-4 bg-white/5 rounded-2xl border border-white/10">
+              <Label className="text-xs font-black uppercase tracking-widest">
+                Gửi cho Admin
+              </Label>
+              <div className="flex gap-2">
+                <div className="flex-1 space-y-1">
+                  <Input 
+                    value={notifyDialog.adminEmail}
+                    onChange={(e) => setNotifyDialog({ ...notifyDialog, adminEmail: e.target.value })}
+                    placeholder="admin@example.com"
+                    className={cn(
+                      "bg-slate-950 border-white/10 text-white h-10 rounded-xl text-xs font-bold",
+                      notifyDialog.adminEmail && !isValidEmail(notifyDialog.adminEmail) && "border-red-500/50 focus-visible:ring-red-500/20"
+                    )}
+                  />
+                  {notifyDialog.adminEmail && !isValidEmail(notifyDialog.adminEmail) && (
+                    <p className="text-[10px] text-red-400 font-bold uppercase tracking-tight">Email không hợp lệ</p>
+                  )}
+                </div>
+                <Button
+                  size="sm"
+                  disabled={notifyDialog.isSendingAdmin || !notifyDialog.adminEmail || !isValidEmail(notifyDialog.adminEmail)}
+                  onClick={() => sendEmailNotification('admin')}
+                  className="bg-emerald-500 hover:bg-emerald-600 text-white font-black text-[10px] px-4 rounded-xl h-10 min-w-[70px]"
+                >
+                  {notifyDialog.isSendingAdmin ? <Loader2 className="w-3 h-3 animate-spin" /> : "GỬI"}
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel 
+              className="bg-transparent border-white/10 text-slate-400 hover:text-white hover:bg-white/5 rounded-xl uppercase font-black text-[10px] tracking-widest h-11 px-6 w-full"
             >
-              {isSendingEmail ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Send className="w-4 h-4 mr-2" />}
-              GỬI THÔNG BÁO NGAY
-            </AlertDialogAction>
+              ĐÓNG
+            </AlertDialogCancel>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

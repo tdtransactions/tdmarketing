@@ -10,11 +10,37 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     console.log("🔔 Gửi email thông báo:", body);
-    const { to, storeName, customerName, customerPhone, googleWebsiteLink, salesPerson, package: pkg } = body;
+    let { to, storeName, customerName, customerPhone, googleWebsiteLink, salesPerson, package: pkg, type, assignedTo } = body;
 
-    if (!to || !storeName) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    // Validate and normalize 'to' field
+    if (!to) {
+      return NextResponse.json({ error: "Missing recipient (to)" }, { status: 400 });
     }
+
+    const recipients = Array.isArray(to) ? to.filter(email => typeof email === "string" && email.trim() !== "") : [to];
+    
+    if (recipients.length === 0) {
+      return NextResponse.json({ error: "No valid recipients provided" }, { status: 400 });
+    }
+
+    // Simple email regex validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const validRecipients = recipients.filter(email => emailRegex.test(email));
+
+    if (validRecipients.length === 0) {
+      return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
+    }
+
+    if (!storeName) {
+      return NextResponse.json({ error: "Missing storeName" }, { status: 400 });
+    }
+
+    const isProcessing = type === "processing";
+    const statusIcon = isProcessing ? "⟳" : "✅";
+    const statusText = isProcessing ? "Đang Xử Lý" : "Đã Hoàn Thành";
+    const statusDescription = isProcessing 
+      ? `Dự án website cho tiệm dưới đây đã được <strong>${Array.isArray(assignedTo) ? assignedTo.join(", ") : (assignedTo || "đội ngũ kỹ thuật")}</strong> tiếp nhận và đang triển khai xử lý:`
+      : `Dự án website cho tiệm dưới đây đã được xử lý hoàn thành và sẵn sàng để bàn giao:`;
 
     const html = `
 <!DOCTYPE html>
@@ -39,9 +65,9 @@ export async function POST(req: NextRequest) {
           <!-- Main Content -->
           <tr>
             <td style="padding:30px 0;">
-              <h1 style="margin:0 0 16px;font-size:24px;font-weight:800;color:#111827;">Website Đã Hoàn Thành ✅</h1>
+              <h1 style="margin:0 0 16px;font-size:24px;font-weight:800;color:#111827;">Website ${statusText} ${statusIcon}</h1>
               <p style="margin:0;font-size:15px;line-height:1.6;color:#4b5563;">
-                Xin chào <strong>${salesPerson || "Sales"}</strong>, dự án website cho tiệm dưới đây đã được xử lý hoàn thành và sẵn sàng để bàn giao:
+                Xin chào <strong>${salesPerson || "Sales"}</strong>, ${statusDescription}
               </p>
             </td>
           </tr>
@@ -96,11 +122,11 @@ export async function POST(req: NextRequest) {
 </html>`;
 
     const text = `
-✅ THÔNG BÁO HOÀN THÀNH WEBSITE
+✅ THÔNG BÁO ${statusText.toUpperCase()} WEBSITE
 
 Xin chào ${salesPerson || "Sales"},
 
-Website cho tiệm "${storeName}" đã được xử lý hoàn thành.
+Website cho tiệm "${storeName}" ${statusText.toLowerCase()}.
 
 THÔNG TIN CHI TIẾT:
 - Tiệm: ${storeName}
@@ -108,26 +134,58 @@ THÔNG TIN CHI TIẾT:
 - Số điện thoại: ${customerPhone || "—"}
 - Gói dịch vụ: ${pkg || "PRO"}
 - Website: ${googleWebsiteLink || "—"}
+${isProcessing ? `- Nhân sự phụ trách: ${Array.isArray(assignedTo) ? assignedTo.join(", ") : (assignedTo || "—")}\n` : ""}
 
-Vui lòng kiểm tra và bàn giao cho khách hàng.
+Vui lòng kiểm tra và xử lý.
 Hệ thống quản lý TD Marketing.
 `;
 
-    const { data, error } = await resend.emails.send({
-      from: FROM_EMAIL,
-      to: [to],
-      replyTo: "support@tdtransactionsllc.com",
-      subject: `✅ [TD Marketing] Website hoàn thành: ${storeName}`,
-      text,
-      html,
+    const ADMIN_EMAIL = process.env.NEXT_PUBLIC_ADMIN_EMAIL || "admin@mytdtransactions.com";
+
+    const sendPromises = validRecipients.map(async (recipient) => {
+      const isAdmin = recipient.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+      
+      const personalizedStatusDescription = isProcessing 
+        ? (isAdmin 
+            ? `Hệ thống thông báo: Dự án website cho tiệm dưới đây đã được <strong>${Array.isArray(assignedTo) ? assignedTo.join(", ") : (assignedTo || "đội ngũ kỹ thuật")}</strong> tiếp nhận và bắt đầu xử lý.`
+            : `Xin chào <strong>${salesPerson || "Sales"}</strong>, dự án website cho tiệm dưới đây đã được <strong>${Array.isArray(assignedTo) ? assignedTo.join(", ") : (assignedTo || "đội ngũ kỹ thuật")}</strong> tiếp nhận và đang triển khai xử lý:`)
+        : (isAdmin
+            ? `Hệ thống thông báo: Dự án website cho tiệm dưới đây đã được xử lý hoàn thành và sẵn sàng bàn giao.`
+            : `Xin chào <strong>${salesPerson || "Sales"}</strong>, dự án website cho tiệm dưới đây đã được xử lý hoàn thành và sẵn sàng để bàn giao:`);
+
+      const personalizedHtml = html.replace(statusDescription, personalizedStatusDescription)
+                                   .replace(`Xin chào <strong>${salesPerson || "Sales"}</strong>`, isAdmin ? `Thông báo cho <strong>Admin</strong>` : `Xin chào <strong>${salesPerson || "Sales"}</strong>`);
+      
+      const personalizedText = text.replace(`Xin chào ${salesPerson || "Sales"}`, isAdmin ? `Thông báo cho Admin` : `Xin chào ${salesPerson || "Sales"}`);
+
+      try {
+        const res = await resend.emails.send({
+          from: FROM_EMAIL,
+          to: [recipient],
+          replyTo: "support@tdtransactionsllc.com",
+          subject: `${isAdmin ? "[ADMIN] " : ""}${statusIcon} [TD Marketing] Website ${statusText.toLowerCase()}: ${storeName}`,
+          text: personalizedText,
+          html: personalizedHtml,
+        });
+        return { recipient, ...res };
+      } catch (e: any) {
+        return { recipient, data: null, error: { message: e.message } };
+      }
     });
 
-    if (error) {
-      console.error("Resend error:", error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    const results = await Promise.all(sendPromises);
+    const failures = results.filter(r => r.error);
+
+    if (failures.length > 0) {
+      console.error("❌ Resend notification failures:", JSON.stringify(failures, null, 2));
+      return NextResponse.json({ 
+        error: "Failed to send one or more emails", 
+        details: failures.map(f => ({ email: f.recipient, error: f.error?.message })) 
+      }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, id: data?.id });
+    console.log("✅ Thông báo gửi thành công:", results.map(r => r.recipient));
+    return NextResponse.json({ success: true, ids: results.map(r => r.data?.id) });
   } catch (err: any) {
     console.error("API notify error:", err);
     return NextResponse.json({ error: err.message }, { status: 500 });

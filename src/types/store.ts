@@ -20,6 +20,7 @@ export type StoreEntry = {
   websiteNote?: string;
   dateRange?: string;
   assignedTo?: string[];
+  websiteAssignedTo?: string[];
   salesPerson?: string;
   paymentTypes?: "Zelle" | "Check" | "Venmo" | "Credit Card" | "Wire" | string;
   amount?: string;
